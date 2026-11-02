@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Presenze">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>CoachHub Presenze</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<!--
+  Canale temporaneo per le presenze, finché l'app non è pubblicata (ADR-034).
+
+  La pagina non contiene dati: le anagrafiche arrivano da `presenze-web.json`,
+  che il Mac scrive nella cartella di scambio. Le presenze escono come
+  `attendance_<dispositivo>_<data>.coachhub`, lo stesso formato dello scambio
+  via cartella (ADR-025), e il Mac le applica con il codice che usa per il
+  telefono.
+-->
+<style>
+  :root {
+    --bg: #F2F2F7;
+    --card: #FFFFFF;
+    --text: #1C1C1E;
+    --muted: #6C6C70;
+    --line: #D1D1D6;
+    --accent: #0A64D8;
+    --accent-text: #FFFFFF;
+    --chip: #E5E5EA;
+    --warn-bg: #FFF4D6;
+    --warn-text: #7A5300;
+    --present: #34C759;
+    --absent: #FF3B30;
+    --excused: #FF9500;
+    --injured: #AF52DE;
+    --late: #FFCC00;
+    --on-present: #FFFFFF;
+    --on-absent: #FFFFFF;
+    --on-excused: #FFFFFF;
+    --on-injured: #FFFFFF;
+    --on-late: #1C1C1E;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000;
+      --card: #1C1C1E;
+      --text: #F2F2F7;
+      --muted: #A1A1A6;
+      --line: #38383A;
+      --accent: #3D8BFF;
+      --chip: #2C2C2E;
+      --warn-bg: #3A2E10;
+      --warn-text: #FFD772;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000;
+    --card: #1C1C1E;
+    --text: #F2F2F7;
+    --muted: #A1A1A6;
+    --line: #38383A;
+    --accent: #3D8BFF;
+    --chip: #2C2C2E;
+    --warn-bg: #3A2E10;
+    --warn-text: #FFD772;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 16px);
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { font: inherit; color: inherit; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-bottom: 0.5px solid var(--line);
+  }
+  .bar { display: flex; align-items: center; gap: 8px; min-height: 52px; }
+  .bar h1 { font-size: 20px; margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .sub { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
+  .icon-btn {
+    border: 0; background: transparent; color: var(--accent);
+    min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 17px; cursor: pointer;
+  }
+
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--muted); margin: 24px 4px 8px; }
+  .card { background: var(--card); border-radius: 12px; overflow: hidden; }
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; min-height: 56px; width: 100%;
+    border: 0; background: transparent; text-align: left; cursor: pointer;
+  }
+  .row + .row { border-top: 0.5px solid var(--line); }
+  .row .main { flex: 1; min-width: 0; }
+  .row .title { font-weight: 600; }
+  .row .meta { font-size: 14px; color: var(--muted); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .chev { color: var(--muted); }
+  .badge { font-size: 13px; padding: 2px 8px; border-radius: 10px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+  .badge.today { background: var(--accent); color: var(--accent-text); }
+
+  .notice { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-text); }
+  .notice p { margin: 0 0 10px; }
+  .notice p:last-child { margin-bottom: 0; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0;
+    background: var(--accent); color: var(--accent-text); font-weight: 600; cursor: pointer;
+  }
+  .btn.secondary { background: var(--chip); color: var(--text); }
+  .btn.block { width: 100%; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .stack { display: grid; gap: 10px; margin-top: 12px; }
+  .hint { font-size: 14px; color: var(--muted); margin: 8px 4px 0; }
+
+  .segmented { display: flex; background: var(--chip); border-radius: 10px; padding: 2px; margin-top: 12px; }
+  .segmented button { flex: 1; min-height: 36px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+  .segmented button[aria-pressed="true"] { background: var(--card); font-weight: 600; box-shadow: 0 1px 3px rgb(0 0 0 / .15); }
+  .segmented button:disabled { opacity: .5; cursor: default; }
+
+  .tally { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tally span { font-size: 14px; padding: 4px 10px; border-radius: 999px; background: var(--chip); }
+
+  .player { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; min-height: 60px; }
+  .player + .player { border-top: 0.5px solid var(--line); }
+  .player .who { flex: 1; min-width: 0; border: 0; background: transparent; text-align: left; padding: 8px 0; cursor: pointer; }
+  /* Il nome va a capo invece di troncarsi, come le righe dell'orologio. */
+  .player .name { font-weight: 600; display: block; overflow-wrap: anywhere; }
+  .player .num { font-size: 14px; color: var(--muted); }
+  .marks { display: flex; gap: 4px; flex: none; }
+  .mark {
+    width: 38px; height: 44px; border-radius: 10px; border: 1.5px solid var(--line);
+    background: transparent; font-weight: 700; font-size: 16px; cursor: pointer; color: var(--muted);
+  }
+  .mark[aria-pressed="true"] { border-color: transparent; }
+  .mark.present[aria-pressed="true"] { background: var(--present); color: var(--on-present); }
+  .mark.absent[aria-pressed="true"]  { background: var(--absent);  color: var(--on-absent); }
+  .mark.late[aria-pressed="true"]    { background: var(--late);    color: var(--on-late); }
+  .mark.excused[aria-pressed="true"] { background: var(--excused); color: var(--on-excused); }
+  .mark.injured[aria-pressed="true"] { background: var(--injured); color: var(--on-injured); }
+  @media (max-width: 360px) { .mark { width: 32px; } }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); margin: 10px 4px 0; }
+  .empty { padding: 20px 16px; color: var(--muted); text-align: center; }
+
+  .toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 16px);
+    max-width: 608px; margin: 0 auto; padding: 14px 16px; border-radius: 12px;
+    background: var(--text); color: var(--bg); font-size: 15px; z-index: 10;
+    opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header><div class="wrap bar" id="bar"></div></header>
+<main class="wrap" id="view"></main>
+<input type="file" id="picker" accept=".json,.coachhub,application/json" class="sr" aria-hidden="true" tabindex="-1">
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Contratto con CoachCore. Se cambia lì, cambia qui — e il test di contratto
+// in CoachSyncTests fallisce finché non combaciano.
+// ---------------------------------------------------------------------------
+
+const FORMAT_VERSION = 1;              // ExchangePackage.currentVersion
+const FILE_EXTENSION = "coachhub";     // ExchangePackage.fileExtension
+const DEFAULT_DURATION = 90;           // TrainingSession.defaultDurationMinutes
+const STORAGE_KEY = "coachhub-presenze-v1";
+const KEEP_DAYS = 60;
+
+/** Ordine dei pulsanti e lettere: le stesse di `attendance.status.*.mark`. */
+const STATUSES = [
+  { id: "present", mark: "P", name: "Presente" },
+  { id: "absent",  mark: "A", name: "Assente" },
+  { id: "late",    mark: "R", name: "In ritardo" },
+  { id: "excused", mark: "G", name: "Giustificato" },
+  { id: "injured", mark: "I", name: "Infortunato" },
+];
+const ATTENDED = new Set(["present", "late"]); // AttendanceStatus.countsAsAttended
+
+const SESSION_TYPES = [
+  { id: "training", name: "Allenamento" },
+  { id: "game",     name: "Partita" },
+]; // SessionType.watchSelectable
+
+const WEEKDAYS = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+
+// ---------------------------------------------------------------------------
+// Date e identificatori
+// ---------------------------------------------------------------------------
+
+/**
+ * ISO 8601 **al secondo**, come lo scrive `JSONEncoder` con `.iso8601`.
+ * `toISOString()` aggiunge i millisecondi: il test di contratto pretende che il
+ * file, ricodificato da Swift, torni identico.
+ */
+function isoDate(date) {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** `DayKey`: giorno locale `yyyy-MM-dd`, come `Calendar.current`. */
+function dayKey(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** `Weekday`: 1 = domenica, come `Calendar`. `getDay()` parte da 0. */
+function weekday(date) { return date.getDay() + 1; }
+
+/** Timbro del nome file, in UTC: `ExchangePackage.timestampFormatter`. */
+function fileStamp(date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`
+    + `-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
+}
+
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID().toUpperCase();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`.toUpperCase();
+}
+
+function minutesToTime(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+const dateFmt = new Intl.DateTimeFormat("it-IT", { weekday: "long", day: "numeric", month: "long" });
+const shortFmt = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// ---------------------------------------------------------------------------
+// Stato, salvato nel browser
+// ---------------------------------------------------------------------------
+
+/**
+ * {
+ *   device: "Web-ab12",
+ *   roster: { createdAt, snapshot } | null,
+ *   sessions: { [id]: { session, records: { [playerID]: record }, dirty, exportedAt } }
+ * }
+ */
+let state = load();
+let route = { name: "home" };
+
+function load() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch { saved = null; }
+  const fresh = {
+    // Nel nome del file non possono stare `_` né spazi: separano i campi.
+    device: "Web-" + uuid().slice(0, 4).toLowerCase(),
+    roster: null,
+    sessions: {},
+  };
+  return saved && typeof saved === "object" ? { ...fresh, ...saved } : fresh;
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    toast("Non riesco a salvare nel browser: le presenze di questa seduta potrebbero perdersi.");
+  }
+}
+
+/** Le sedute già esportate e vecchie escono dalla memoria: lo storico vero è sul Mac. */
+function prune() {
+  const limit = Date.now() - KEEP_DAYS * 86_400_000;
+  for (const [id, entry] of Object.entries(state.sessions)) {
+    if (!entry.dirty && new Date(entry.session.startsAt).getTime() < limit) delete state.sessions[id];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Anagrafiche
+// ---------------------------------------------------------------------------
+
+function roster() { return state.roster ? state.roster.snapshot : null; }
+
+function currentSeason() {
+  const r = roster();
+  if (!r || !r.seasons.length) return null;
+  return r.seasons.find((s) => s.isCurrent)
+    || [...r.seasons].sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+}
+
+function teams() {
+  const r = roster();
+  const season = currentSeason();
+  if (!r || !season) return [];
+  return r.teams.filter((t) => t.seasonID === season.id && !t.isArchived);
+}
+
+function teamByID(id) {
+  const r = roster();
+  return r ? r.teams.find((t) => t.id === id) : null;
+}
+
+function todaySlot(teamID, date) {
+  const r = roster();
+  if (!r) return null;
+  return r.slots
+    .filter((s) => s.teamID === teamID && s.isActive && s.weekday === weekday(date))
+    .sort((a, b) => a.startMinuteOfDay - b.startMinuteOfDay)[0] || null;
+}
+
+/** Squadre di oggi prima, in ordine d'orario; poi le altre nell'ordine del Mac. */
+function orderedTeams(now) {
+  return teams()
+    .map((team) => ({ team, slot: todaySlot(team.id, now) }))
+    .sort((a, b) => {
+      if (a.slot && b.slot) return a.slot.startMinuteOfDay - b.slot.startMinuteOfDay;
+      if (a.slot) return -1;
+      if (b.slot) return 1;
+      return a.team.displayOrder - b.team.displayOrder || a.team.name.localeCompare(b.team.name, "it");
+    });
+}
+
+/** `TeamMembership.isActive(on:)`. */
+function membershipActive(m, date) {
+  const t = date.getTime();
+  if (t < new Date(m.startDate).getTime()) return false;
+  return !m.endDate || t <= new Date(m.endDate).getTime();
+}
+
+/** I giocatori della seduta: iscritti attivi quel giorno, più chi è già segnato. */
+function playersFor(entry) {
+  const r = roster();
+  if (!r) return [];
+  const at = new Date(entry.session.startsAt);
+  const byID = new Map(r.players.map((p) => [p.id, p]));
+  const jersey = new Map();
+  for (const m of r.memberships) {
+    if (m.teamID === entry.session.teamID && membershipActive(m, at)) jersey.set(m.playerID, m.jerseyNumber ?? null);
+  }
+  for (const playerID of Object.keys(entry.records)) if (!jersey.has(playerID)) jersey.set(playerID, null);
+  return [...jersey.entries()]
+    .map(([id, number]) => ({ player: byID.get(id), number }))
+    .filter((x) => x.player && (x.player.isActive || entry.records[x.player.id]))
+    .sort((a, b) => a.player.lastName.localeCompare(b.player.lastName, "it")
+      || a.player.firstName.localeCompare(b.player.firstName, "it"));
+}
+
+function readRoster(text) {
+  let pkg;
+  try { pkg = JSON.parse(text); } catch { throw new Error("Il file non è leggibile."); }
+  if (!pkg || typeof pkg !== "object" || !pkg.snapshot) throw new Error("Non è un file di CoachHub.");
+  if (pkg.version > FORMAT_VERSION) throw new Error("Il file è di una versione più recente: aggiorna la pagina.");
+  if (pkg.kind !== "roster") throw new Error("Questo file contiene presenze, non anagrafiche. Scegli «presenze-web.json».");
+  const s = pkg.snapshot;
+  for (const key of ["seasons", "teams", "players", "memberships", "slots"]) {
+    if (!Array.isArray(s[key])) throw new Error("Al file mancano dei dati: riesportalo dal Mac.");
+  }
+  // Nel browser non serve altro: niente note né date di nascita, anche se il
+  // file arrivasse da un pacchetto completo.
+  s.players = s.players.map(({ id, firstName, lastName, isActive }) => ({ id, firstName, lastName, isActive }));
+  return { createdAt: pkg.createdAt, loadedAt: isoDate(new Date()), snapshot: s };
+}
+
+// ---------------------------------------------------------------------------
+// Sedute e presenze
+// ---------------------------------------------------------------------------
+
+/** `SessionResolver`: una sola seduta per squadra, giorno e tipo. */
+function findSession(teamID, type, day) {
+  return Object.values(state.sessions)
+    .find((e) => e.session.teamID === teamID && e.session.type === type && e.session.dayKey.rawValue === day) || null;
+}
+
+/** Bozza non salvata: diventa una seduta solo al primo segno, come sul watch. */
+function draftSession(teamID, type, now) {
+  const slot = todaySlot(teamID, now);
+  return {
+    session: {
+      id: uuid(),
+      teamID,
+      startsAt: isoDate(now),
+      dayKey: { rawValue: dayKey(now) },
+      plannedDurationMinutes: slot ? slot.durationMinutes : DEFAULT_DURATION,
+      location: slot ? slot.location : "",
+      type,
+      notes: "",
+      isCancelled: false,
+      syncState: "local",
+    },
+    records: {},
+    dirty: false,
+    exportedAt: null,
+  };
+}
+
+function openSession(teamID, type) {
+  const now = new Date();
+  const existing = findSession(teamID, type, dayKey(now));
+  route = { name: "session", entry: existing || draftSession(teamID, type, now) };
+  render();
+  window.scrollTo(0, 0);
+}
+
+function setStatus(entry, playerID, status) {
+  const now = isoDate(new Date());
+  const current = entry.records[playerID];
+  if (current && current.status === status) return;
+  entry.records[playerID] = current
+    ? { ...current, status, lastModifiedAt: now }
+    : {
+        id: uuid(),
+        sessionID: entry.session.id,
+        playerID,
+        status,
+        note: "",
+        recordedAt: now,
+        lastModifiedAt: now,
+        originDevice: state.device,
+        syncState: "local",
+      };
+  entry.dirty = true;
+  state.sessions[entry.session.id] = entry;
+  save();
+}
+
+function pending() {
+  return Object.values(state.sessions).filter((e) => e.dirty && Object.keys(e.records).length);
+}
+
+// ---------------------------------------------------------------------------
+// Esportazione
+// ---------------------------------------------------------------------------
+
+/** Un `ExchangePackage` di tipo `attendance`, identico a quello del telefono. */
+function buildPackage(entries, now) {
+  return {
+    version: FORMAT_VERSION,
+    kind: "attendance",
+    originDevice: state.device,
+    createdAt: isoDate(now),
+    snapshot: {
+      seasons: [], teams: [], players: [], memberships: [], slots: [], coaches: [],
+      sessions: entries.map((e) => e.session),
+      records: entries.flatMap((e) => Object.values(e.records)),
+    },
+  };
+}
+
+async function exportSessions(entries) {
+  if (!entries.length) return;
+  const now = new Date();
+  const name = `attendance_${state.device}_${fileStamp(now)}.${FILE_EXTENSION}`;
+  const body = JSON.stringify(buildPackage(entries, now));
+  const file = new File([body], name, { type: "application/json" });
+
+  let delivered = false;
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      delivered = true;
+    } catch (error) {
+      if (error && error.name === "AbortError") { toast("Esportazione annullata: le sedute restano da inviare."); return; }
+      // Condivisione non riuscita per altri motivi: si ripiega sullo scaricamento.
+    }
+  }
+  if (!delivered) {
+    const url = URL.createObjectURL(file);
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    toast("File scaricato: spostalo nella cartella di scambio di CoachHub.");
+  } else {
+    toast("File pronto. Il Mac lo applica alla prossima scansione.");
+  }
+
+  const stamp = isoDate(now);
+  for (const e of entries) {
+    const stored = state.sessions[e.session.id];
+    if (stored) { stored.dirty = false; stored.exportedAt = stamp; }
+  }
+  save();
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// Interfaccia
+// ---------------------------------------------------------------------------
+
+const $bar = document.getElementById("bar");
+const $view = document.getElementById("view");
+const $picker = document.getElementById("picker");
+const $toast = document.getElementById("toast");
+
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "style") el.style.cssText = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : String(c));
+  return el;
+}
+
+let toastTimer;
+function toast(text) {
+  $toast.textContent = text;
+  $toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $toast.classList.remove("show"), 3500);
+}
+
+function render() {
+  $bar.replaceChildren();
+  $view.replaceChildren();
+  if (route.name === "session") renderSession(route.entry);
+  else if (route.name === "settings") renderSettings();
+  else renderHome();
+}
+
+function renderHome() {
+  const now = new Date();
+  $bar.append(
+    h("h1", {}, "Presenze", h("span", { class: "sub" }, dateFmt.format(now))),
+    h("button", { class: "icon-btn", "aria-label": "Impostazioni", onclick: () => { route = { name: "settings" }; render(); } }, "Impostazioni"),
+  );
+
+  if (!roster()) {
+    $view.append(
+      h("div", { class: "notice" },
+        h("p", {}, h("strong", {}, "Carica le anagrafiche per iniziare.")),
+        h("p", {}, "Sul Mac, CoachHub scrive «presenze-web.json» nella cartella di scambio. Sceglilo da qui: basta una volta, e di nuovo quando cambiano squadre o giocatori."),
+        h("button", { class: "btn", onclick: () => $picker.click() }, "Scegli il file"),
+      ),
+    );
+    return;
+  }
+
+  const waiting = pending();
+  if (waiting.length) {
+    const n = waiting.length;
+    $view.append(
+      h("div", { class: "notice" },
+        h("p", {}, h("strong", {}, n === 1 ? "1 seduta da inviare al Mac." : `${n} sedute da inviare al Mac.`)),
+        h("p", {}, "«Esporta», poi «Salva in File» e scegli la cartella di scambio di CoachHub."),
+        h("button", { class: "btn", onclick: () => exportSessions(pending()) }, "Esporta"),
+      ),
+    );
+  }
+
+  const list = orderedTeams(now);
+  $view.append(h("h2", {}, "Squadre"));
+  const card = h("div", { class: "card" });
+  if (!list.length) card.append(h("div", { class: "empty" }, "Nessuna squadra nella stagione corrente."));
+  const today = dayKey(now);
+  for (const { team, slot } of list) {
+    const running = SESSION_TYPES.map((t) => findSession(team.id, t.id, today)).find(Boolean);
+    const marked = running ? Object.keys(running.records).length : 0;
+    const meta = slot
+      ? `Oggi ${minutesToTime(slot.startMinuteOfDay)}${slot.location ? " · " + slot.location : ""}`
+      : slotsSummary(team.id);
+    card.append(
+      h("button", { class: "row", onclick: () => openSession(team.id, running ? running.session.type : "training") },
+        h("span", { class: "dot", style: `background:${team.colorHex}` }),
+        h("span", { class: "main" }, h("span", { class: "title" }, team.name), h("br"), h("span", { class: "meta" }, meta)),
+        marked ? h("span", { class: "badge" }, `${marked} segnati`) : slot ? h("span", { class: "badge today" }, "oggi") : null,
+        h("span", { class: "chev", "aria-hidden": "true" }, "›"),
+      ),
+    );
+  }
+  $view.append(card);
+
+  const history = Object.values(state.sessions)
+    .filter((e) => e.session.dayKey.rawValue !== today || e.exportedAt)
+    .sort((a, b) => b.session.startsAt.localeCompare(a.session.startsAt))
+    .slice(0, 15);
+  if (history.length) {
+    $view.append(h("h2", {}, "Ultime sedute"));
+    const past = h("div", { class: "card" });
+    for (const e of history) {
+      const team = teamByID(e.session.teamID);
+      const attended = Object.values(e.records).filter((r) => ATTENDED.has(r.status)).length;
+      past.append(
+        h("button", { class: "row", onclick: () => { route = { name: "session", entry: e }; render(); window.scrollTo(0, 0); } },
+          h("span", { class: "dot", style: `background:${team ? team.colorHex : "var(--line)"}` }),
+          h("span", { class: "main" },
+            h("span", { class: "title" }, team ? team.name : "Squadra non più in anagrafica"),
+            h("br"),
+            h("span", { class: "meta" }, `${shortFmt.format(new Date(e.session.startsAt))} · ${attended} presenti`),
+          ),
+          h("span", { class: "badge" }, e.dirty ? "da inviare" : "inviata"),
+        ),
+      );
+    }
+    $view.append(past);
+  }
+
+  const age = state.roster.createdAt ? shortFmt.format(new Date(state.roster.createdAt)) : "data sconosciuta";
+  $view.append(h("p", { class: "hint" }, `Anagrafiche del ${age}.`));
+}
+
+function slotsSummary(teamID) {
+  const r = roster();
+  const days = r.slots.filter((s) => s.teamID === teamID && s.isActive)
+    .sort((a, b) => ((a.weekday + 5) % 7) - ((b.weekday + 5) % 7))
+    .map((s) => `${WEEKDAYS[s.weekday - 1]} ${minutesToTime(s.startMinuteOfDay)}`);
+  return days.length ? days.join(" · ") : "Nessun orario";
+}
+
+function renderSession(entry) {
+  const team = teamByID(entry.session.teamID);
+  const started = new Date(entry.session.startsAt);
+  const isSaved = Boolean(state.sessions[entry.session.id]);
+  const isToday = entry.session.dayKey.rawValue === dayKey(new Date());
+
+  $bar.append(
+    h("button", { class: "icon-btn", "aria-label": "Torna alle squadre", onclick: () => { route = { name: "home" }; render(); } }, "‹ Squadre"),
+    h("h1", { style: "text-align:center" }, team ? team.shortName || team.name : "Seduta",
+      h("span", { class: "sub" }, isToday ? "Oggi" : dateFmt.format(started))),
+    h("span", { style: "min-width:88px" }),
+  );
+
+  // Il tipo fa parte della chiave di deduplica: si sceglie prima di segnare.
+  const typeLocked = Object.keys(entry.records).length > 0;
+  $view.append(
+    h("div", { class: "segmented", role: "group", "aria-label": "Tipo di seduta" },
+      SESSION_TYPES.map((t) => h("button", {
+        "aria-pressed": String(entry.session.type === t.id),
+        disabled: typeLocked && entry.session.type !== t.id,
+        onclick: () => { if (!typeLocked && isToday) openSession(entry.session.teamID, t.id); },
+      }, t.name)),
+    ),
+  );
+
+  const players = playersFor(entry);
+  const counts = Object.fromEntries(STATUSES.map((s) => [s.id, 0]));
+  for (const r of Object.values(entry.records)) counts[r.status] = (counts[r.status] || 0) + 1;
+  const unmarked = players.filter((p) => !entry.records[p.player.id]).length;
+
+  $view.append(
+    h("div", { class: "tally", "aria-live": "polite" },
+      h("span", {}, `Presenti ${counts.present + counts.late}`),
+      h("span", {}, `Assenti ${counts.absent + counts.excused + counts.injured}`),
+      unmarked ? h("span", {}, `Da segnare ${unmarked}`) : null,
+    ),
+  );
+
+  const card = h("div", { class: "card", style: "margin-top:12px" });
+  if (!players.length) card.append(h("div", { class: "empty" }, "Nessun giocatore iscritto a questa squadra."));
+  for (const { player, number } of players) {
+    const current = entry.records[player.id]?.status;
+    const label = `${player.lastName} ${player.firstName}`;
+    // `Player.watchDisplayName`: cognome e iniziale, il formato dell'orologio.
+    const short = player.firstName ? `${player.lastName} ${player.firstName[0]}.` : player.lastName;
+    card.append(
+      h("div", { class: "player" },
+        // Il tocco sul nome alterna presente e assente, come sull'orologio.
+        h("button", {
+          class: "who",
+          "aria-label": `${label}: ${current ? STATUSES.find((s) => s.id === current).name : "da segnare"}. Tocca per alternare presente e assente.`,
+          onclick: () => { setStatus(entry, player.id, current === "present" ? "absent" : "present"); render(); },
+        },
+          h("span", { class: "name" }, short),
+          h("span", { class: "num" }, number != null ? `#${number}` : " "),
+        ),
+        h("div", { class: "marks" },
+          STATUSES.map((s) => h("button", {
+            class: `mark ${s.id}`,
+            "aria-pressed": String(current === s.id),
+            "aria-label": `${label}: ${s.name}`,
+            title: s.name,
+            onclick: () => { setStatus(entry, player.id, s.id); render(); },
+          }, s.mark)),
+        ),
+      ),
+    );
+  }
+  $view.append(card);
+
+  $view.append(h("div", { class: "legend" }, STATUSES.map((s) => h("span", {}, `${s.mark} ${s.name}`))));
+
+  const actions = h("div", { class: "stack" });
+  if (unmarked) {
+    actions.append(h("button", {
+      class: "btn secondary block",
+      onclick: () => {
+        for (const p of players) if (!entry.records[p.player.id]) setStatus(entry, p.player.id, "present");
+        render();
+      },
+    }, `Segna presenti gli altri ${unmarked}`));
+  }
+  if (isSaved && entry.dirty) {
+    actions.append(h("button", { class: "btn block", onclick: () => exportSessions(pending()) }, "Esporta per il Mac"));
+  } else if (isSaved && entry.exportedAt) {
+    actions.append(h("p", { class: "hint" }, `Inviata il ${shortFmt.format(new Date(entry.exportedAt))}. Una modifica la rimette fra quelle da inviare.`));
+  }
+  $view.append(actions);
+}
+
+function renderSettings() {
+  $bar.append(
+    h("button", { class: "icon-btn", onclick: () => { route = { name: "home" }; render(); } }, "‹ Indietro"),
+    h("h1", { style: "text-align:center" }, "Impostazioni"),
+    h("span", { style: "min-width:88px" }),
+  );
+
+  const r = roster();
+  $view.append(h("h2", {}, "Anagrafiche"));
+  $view.append(h("div", { class: "card" },
+    h("div", { class: "row", style: "cursor:default" },
+      h("span", { class: "main" },
+        h("span", { class: "title" }, r ? `${teams().length} squadre · ${r.players.length} giocatori` : "Non caricate"),
+        h("br"),
+        h("span", { class: "meta" }, r && state.roster.createdAt ? `Scritte dal Mac il ${shortFmt.format(new Date(state.roster.createdAt))}` : "Scegli «presenze-web.json» dalla cartella di scambio"),
+      ),
+    ),
+  ));
+  $view.append(h("div", { class: "stack" }, h("button", { class: "btn block", onclick: () => $picker.click() }, r ? "Aggiorna anagrafiche" : "Scegli il file")));
+
+  const all = Object.values(state.sessions).filter((e) => Object.keys(e.records).length);
+  $view.append(h("h2", {}, "Presenze"));
+  $view.append(h("div", { class: "stack" },
+    h("button", { class: "btn secondary block", disabled: !all.length, onclick: () => exportSessions(all) },
+      `Esporta di nuovo tutte (${all.length})`),
+  ));
+  $view.append(h("p", { class: "hint" }, "Se un file è andato perso. Reimportare le stesse presenze sul Mac non crea doppioni."));
+
+  $view.append(h("h2", {}, "Questo dispositivo"));
+  $view.append(h("div", { class: "card" },
+    h("div", { class: "row", style: "cursor:default" },
+      h("span", { class: "main" }, h("span", { class: "title" }, state.device), h("br"),
+        h("span", { class: "meta" }, "Nome che compare nei file esportati")),
+    ),
+  ));
+  $view.append(h("p", { class: "hint" }, "Aggiungi la pagina alla schermata Home (Condividi → Aggiungi alla schermata Home): così funziona senza rete e Safari non cancella le presenze."));
+}
+
+$picker.addEventListener("change", async () => {
+  const file = $picker.files && $picker.files[0];
+  $picker.value = "";
+  if (!file) return;
+  try {
+    state.roster = readRoster(await file.text());
+    save();
+    toast(`Anagrafiche caricate: ${teams().length} squadre.`);
+    route = { name: "home" };
+    render();
+  } catch (error) {
+    toast(error.message);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Avvio
+// ---------------------------------------------------------------------------
+
+prune();
+save();
+render();
+
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+// La data della home cambia a mezzanotte e all'apertura dalla schermata Home.
+document.addEventListener("visibilitychange", () => { if (!document.hidden && route.name === "home") render(); });
+</script>
+</body>
+</html>
